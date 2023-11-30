@@ -6,6 +6,8 @@ import logging
 from logging import config
 from ndexutil.config import NDExUtilConfig
 from ndex2.client import Ndex2
+from ndex2.cx2 import RawCX2NetworkFactory
+from ndex2.cx2 import CX2Network
 import ndexnestloader
 
 logger = logging.getLogger(__name__)
@@ -95,7 +97,8 @@ class NDExNeSTLoader(object):
     """
     Class to load content
     """
-    def __init__(self, args):
+    def __init__(self, args,
+                 cx2factory=RawCX2NetworkFactory()):
         """
 
         :param args:
@@ -110,6 +113,7 @@ class NDExNeSTLoader(object):
         self._hierarchy = args.hierarchy
         self._ccmi_link = args.ccmi_link
         self._maxsize = args.maxsize
+        self._cx2factory = cx2factory
 
     def _get_user_agent(self):
         """
@@ -126,12 +130,13 @@ class NDExNeSTLoader(object):
         """
         if self._ndexclient is None:
             self._ndexclient = Ndex2(host=self._server, username=self._user,
-                                     password=self._pass, user_agent=self._get_user_agent())
+                                     password=self._pass, user_agent=self._get_user_agent(),
+                                     skip_version_check=True)
 
     def _parse_config(self):
             """
             Parses config
-            :return:
+
             """
             ncon = NDExUtilConfig(conf_file=self._conf_file)
             con = ncon.get_config()
@@ -139,30 +144,86 @@ class NDExNeSTLoader(object):
             self._pass = con.get(self._profile, NDExUtilConfig.PASSWORD)
             self._server = con.get(self._profile, NDExUtilConfig.SERVER)
 
+    def get_network_from_ndex(self, ndexclient=None, network_uuid=None):
+        """
+        Gets network with **network_uuid** id from NDEx
+
+        :param network_uuid: UUID of network on NDEx
+        :type network_uuid: str
+        :return: Network loaded from NDEx
+        :rtype: :py:class:`~ndex2.cx2.CX2Network`
+        """
+        myclient = ndexclient
+        if myclient is None:
+            myclient = self._ndexclient
+        logger.debug('getting network ' + str(network_uuid) + ' from NDEx')
+        client_resp = myclient.get_network_as_cx2_stream(network_uuid)
+        return self._cx2factory.get_cx2network(client_resp.json())
+
+    def get_name_and_uuid_of_subnetwork(self, node):
+        """
+        Gets name and subnetwork UUID from old format hiview network hierarchy.
+
+        :param node: Node from :py:class:`~ndex2.cx2.CX2Network` that is a dictionary
+                     of dictionaries and the node attributes are under ``'v'`` key
+        :type node: dict
+        :return: (name, subnetwork UUID)
+        :rtype: tuple
+        """
+        i_link = node['v']['ndex:internalLink']
+
+        # the value in i_link will look something like this
+        # [Vesicle membrane fusion](046718a6-2c3b-11eb-890f-0660b7976219)
+        # the next command splits and we use simple trimming to get values
+        split_link = i_link.split('](')
+        return split_link[0][1:], split_link[1][:-1]
+
     def run(self):
         """
         Runs content loading for NDEx NeST SubNetworks Content Loader
-        :param theargs:
-        :return:
+
+        :return: 0 upon success otherwise error
+        :rtype: int
         """
         self._parse_config()
         self._create_ndex_connection()
 
         # Load Hierarchy
+        hierarchy = self.get_network_from_ndex(ndexclient=Ndex2(host='test.ndexbio.org',
+                                                                skip_version_check=True,
+                                                                user_agent=self._get_user_agent()),
+                                               network_uuid=self._hierarchy)
 
         # For each node in hierarchy
+        for node in hierarchy.get_nodes().items():
+            if not 'ndex:internalLink' in node[1]['v']:
+                continue
+            sub_net_name, sub_net_uuid = self.get_name_and_uuid_of_subnetwork(node[1])
+            if sub_net_name.startswith('NEST:'):
+                logger.info('Skipping ' + sub_net_name + ' since it lacks a name')
+                continue
 
-        # load subsystem as network and skip if exceeds self._maxsize number of nodes
+            # load subsystem as network and skip if exceeds self._maxsize number of nodes
+            sub_network = self.get_network_from_ndex(network_uuid=sub_net_uuid)
+            num_nodes = len(sub_network.get_nodes().keys())
+            if num_nodes > self._maxsize:
+                logger.info('Skipping ' + sub_net_name + ' because it has ' +
+                            str(num_nodes) +
+                            ' which exceeds --maxsize cutoff of ' +
+                            str(self._maxsize))
 
-        # Rename subsystem
+            # Rename subsystem, Add ccmi_link, Add hierarchy link
 
-        # Add ccmi_link
+            net_attrs = sub_network.get_network_attributes()
+            net_attrs['name'] = 'NeST: ' + sub_net_name
+            net_attrs['Description'] = net_attrs['Description'] + '<br/>For more information see:<br/>' \
+                                                                  '<a target="_blank" href="' + \
+                                       self._ccmi_link + '">CCMI NeST</a>\n'
+            sub_network.set_network_attributes(net_attrs)
+            print(net_attrs)
+            # Save subsystem as new network
 
-        # Add hierarchy link
-
-        # Save subsystem as new network
-
-        # Save subsystem to networkset
+            # Save subsystem to networkset
 
         return 0
 
@@ -170,8 +231,11 @@ class NDExNeSTLoader(object):
 def main(args):
     """
     Main entry point for program
-    :param args:
-    :return:
+
+    :param args: Command line arguments with 0 being this invoking script filename or path
+    :type args: list
+    :return: 0 upon success otherwise error
+    :rtype: int
     """
     desc = """
     Version {version}
@@ -184,7 +248,7 @@ def main(args):
          
     The configuration file should be formatted as follows:
          
-    [<value in --profile (default ncipid)>]
+    [<value in --profile (default ndexnestloader)>]
          
     {user} = <NDEx username>
     {password} = <NDEx password>
