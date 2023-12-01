@@ -45,6 +45,8 @@ def _parse_arguments(desc, args):
     parser.add_argument('--maxsize', default=100, type=int,
                         help='Maximum size of NeST subnetwork to extract')
     parser.add_argument('--ccmi_link', default='https://ccmi.org/nest')
+    parser.add_argument('--visibility', default='PUBLIC', choices=['PUBLIC', 'PRIVATE'],
+                        help='Denotes visibility of uploaded subnetworks on NDEx')
     parser.add_argument('--logconf', default=None,
                         help='Path to python logging configuration file in '
                              'this format: https://docs.python.org/3/library/'
@@ -105,6 +107,7 @@ class NDExNeSTLoader(object):
         """
         self._conf_file = args.conf
         self._profile = args.profile
+        self._visibility = args.visibility
         self._user = None
         self._pass = None
         self._server = None
@@ -114,6 +117,7 @@ class NDExNeSTLoader(object):
         self._ccmi_link = args.ccmi_link
         self._maxsize = args.maxsize
         self._cx2factory = cx2factory
+
 
     def _get_user_agent(self):
         """
@@ -188,10 +192,11 @@ class NDExNeSTLoader(object):
         self._parse_config()
         self._create_ndex_connection()
 
+        # test client
+        testclient = Ndex2(host='test.ndexbio.org', skip_version_check=True,
+                           user_agent=self._get_user_agent())
         # Load Hierarchy
-        hierarchy = self.get_network_from_ndex(ndexclient=Ndex2(host='test.ndexbio.org',
-                                                                skip_version_check=True,
-                                                                user_agent=self._get_user_agent()),
+        hierarchy = self.get_network_from_ndex(ndexclient=testclient,
                                                network_uuid=self._hierarchy)
 
         # For each node in hierarchy
@@ -204,13 +209,15 @@ class NDExNeSTLoader(object):
                 continue
 
             # load subsystem as network and skip if exceeds self._maxsize number of nodes
-            sub_network = self.get_network_from_ndex(network_uuid=sub_net_uuid)
+            sub_network = self.get_network_from_ndex(ndexclient=testclient,
+                                                     network_uuid=sub_net_uuid)
             num_nodes = len(sub_network.get_nodes().keys())
             if num_nodes > self._maxsize:
                 logger.info('Skipping ' + sub_net_name + ' because it has ' +
                             str(num_nodes) +
                             ' which exceeds --maxsize cutoff of ' +
                             str(self._maxsize))
+                continue
 
             # Rename subsystem, Add ccmi_link, Add hierarchy link
 
@@ -218,10 +225,10 @@ class NDExNeSTLoader(object):
             net_attrs['name'] = 'NeST: ' + sub_net_name
             net_attrs['Description'] = net_attrs['Description'] + '<br/>For more information see:<br/>' \
                                                                   '<a target="_blank" href="' + \
-                                       self._ccmi_link + '">CCMI NeST</a>\n'
+                                       self._ccmi_link + '">CCMI NeST</a><br/>\n'
             sub_network.set_network_attributes(net_attrs)
-            print(net_attrs)
             # Save subsystem as new network
+            self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
 
             # Save subsystem to networkset
 
