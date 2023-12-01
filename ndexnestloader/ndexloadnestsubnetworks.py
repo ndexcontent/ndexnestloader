@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import re
 import logging
 from logging import config
 from ndexutil.config import NDExUtilConfig
@@ -42,6 +43,9 @@ def _parse_arguments(desc, args):
     parser.add_argument('--hierarchy', default='274fcd6c-1adc-11ea-a741-0660b7976219',
                         help='NDEx UUID of NeST hierarchy used to extract subnetworks '
                              'and to name those subnetworks')
+    parser.add_argument('--hiview_link',
+                        default='http://hiview.ucsd.edu/274fcd6c-1adc-11ea-a741-0660b7976219?type=test&server=https://test.ndexbio.edu',
+                        help='URL for HiView to add to network description')
     parser.add_argument('--maxsize', default=100, type=int,
                         help='Maximum size of NeST subnetwork to extract')
     parser.add_argument('--ccmi_link', default='https://ccmi.org/nest')
@@ -108,6 +112,7 @@ class NDExNeSTLoader(object):
         self._conf_file = args.conf
         self._profile = args.profile
         self._visibility = args.visibility
+        self._hiview_link = args.hiview_link
         self._user = None
         self._pass = None
         self._server = None
@@ -204,9 +209,6 @@ class NDExNeSTLoader(object):
             if not 'ndex:internalLink' in node[1]['v']:
                 continue
             sub_net_name, sub_net_uuid = self.get_name_and_uuid_of_subnetwork(node[1])
-            if sub_net_name.startswith('NEST:'):
-                logger.info('Skipping ' + sub_net_name + ' since it lacks a name')
-                continue
 
             # load subsystem as network and skip if exceeds self._maxsize number of nodes
             sub_network = self.get_network_from_ndex(ndexclient=testclient,
@@ -220,12 +222,22 @@ class NDExNeSTLoader(object):
                 continue
 
             # Rename subsystem, Add ccmi_link, Add hierarchy link
+            ccmi_href = '<a target="_blank" href="' + self._ccmi_link +\
+                        '">CCMI NeST</a>'
+            hiview_href = '<a target="_bank" href="' +\
+                          self._hiview_link +\
+                          '">Click here to view whole ' \
+                          'hierarchy in HiView</a><br/>'
 
             net_attrs = sub_network.get_network_attributes()
-            net_attrs['name'] = 'NeST: ' + sub_net_name
-            net_attrs['Description'] = net_attrs['Description'] + '<br/>For more information see:<br/>' \
-                                                                  '<a target="_blank" href="' + \
-                                       self._ccmi_link + '">CCMI NeST</a><br/>\n'
+
+            if sub_net_name.startswith('NEST:'):
+                net_attrs['name'] = re.sub('^NEST:', 'NeST:', sub_net_name)
+            else:
+                net_attrs['name'] = 'NeST: ' + sub_net_name
+
+            net_attrs['Description'] = 'This network represents a subsystem of<br/>' +\
+                                       ccmi_href + ' hierarchy<br/>' + hiview_href
             sub_network.set_network_attributes(net_attrs)
             # Save subsystem as new network
             self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
