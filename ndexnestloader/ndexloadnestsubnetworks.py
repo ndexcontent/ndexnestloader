@@ -1,12 +1,14 @@
 #! /usr/bin/env python
 
+import io
 import argparse
 import sys
 import re
+import json
 import logging
 from logging import config
 from ndexutil.config import NDExUtilConfig
-from ndex2.client import Ndex2
+from ndex2.client import Ndex2, DecimalEncoder
 from ndex2.cx2 import RawCX2NetworkFactory
 from ndex2.cx2 import CX2Network
 import ndexnestloader
@@ -43,12 +45,8 @@ def _parse_arguments(desc, args):
     parser.add_argument('--hierarchy', default='274fcd6c-1adc-11ea-a741-0660b7976219',
                         help='NDEx UUID of NeST hierarchy used to extract subnetworks '
                              'and to name those subnetworks')
-    parser.add_argument('--hiview_link',
-                        default='http://hiview.ucsd.edu/274fcd6c-1adc-11ea-a741-0660b7976219?type=test&server=https://test.ndexbio.edu',
-                        help='URL for HiView to add to network description')
     parser.add_argument('--maxsize', default=100, type=int,
                         help='Maximum size of NeST subnetwork to extract')
-    parser.add_argument('--ccmi_link', default='https://ccmi.org/nest')
     parser.add_argument('--visibility', default='PUBLIC', choices=['PUBLIC', 'PRIVATE'],
                         help='Denotes visibility of uploaded subnetworks on NDEx')
     parser.add_argument('--logconf', default=None,
@@ -112,17 +110,14 @@ class NDExNeSTLoader(object):
         self._conf_file = args.conf
         self._profile = args.profile
         self._visibility = args.visibility
-        self._hiview_link = args.hiview_link
         self._user = None
         self._pass = None
         self._server = None
         self._ndexclient = None
         self._version = args.version
         self._hierarchy = args.hierarchy
-        self._ccmi_link = args.ccmi_link
         self._maxsize = args.maxsize
         self._cx2factory = cx2factory
-
 
     def _get_user_agent(self):
         """
@@ -187,6 +182,47 @@ class NDExNeSTLoader(object):
         split_link = i_link.split('](')
         return split_link[0][1:], split_link[1][:-1]
 
+    def check_for_existing_networks(self):
+        """
+        Query for networks owned by user and create a map of
+        name to UUID
+
+        :return:
+        :rtype: dict
+        """
+        network_dict = {}
+        all_netsummaries = []
+
+        net_summaries = self._ndexclient.get_user_network_summaries(self._user,
+                                                                    limit=10000)
+        while len(net_summaries) == 10000:
+            logger.info('User has 10,000 networks at least,'
+                        'querying again for all network summaries')
+            all_netsummaries.extend(net_summaries)
+            net_summaries = self._ndexclient.get_user_network_summaries(self._user,
+                                                                        limit=10000)
+        all_netsummaries.extend(net_summaries)
+
+        for ns in all_netsummaries:
+            if 'name' not in ns:
+                logger.debug('Network with UUID: ' +
+                             str(ns['externalId'] +
+                                 ' lacks a name. Skipping'))
+                continue
+            if ns['owner'] != self._user:
+                logger.debug('Network ' + ns['name'] + ' UUID: ' +
+                             ns['externalId'] +
+                             ' does not match owner. Skipping')
+                continue
+
+            if not ns['name'].startswith('NeST:'):
+                logger.debug('Network ' + ns['name'] + ' UUID: ' +
+                             ns['externalId'] +
+                             ' does not start with NeST: Skipping')
+                continue
+            network_dict[ns['name']] = ns['externalId']
+        return network_dict
+
     def run(self):
         """
         Runs content loading for NDEx NeST SubNetworks Content Loader
@@ -209,6 +245,9 @@ class NDExNeSTLoader(object):
             if not 'ndex:internalLink' in node[1]['v']:
                 continue
             sub_net_name, sub_net_uuid = self.get_name_and_uuid_of_subnetwork(node[1])
+            if sub_net_name.startswith('NEST:'):
+                logger.info('Skipping ' + sub_net_name + ' since it lacks a name')
+                continue
 
             # load subsystem as network and skip if exceeds self._maxsize number of nodes
             sub_network = self.get_network_from_ndex(ndexclient=testclient,
@@ -221,14 +260,7 @@ class NDExNeSTLoader(object):
                             str(self._maxsize))
                 continue
 
-            # Rename subsystem, Add ccmi_link, Add hierarchy link
-            ccmi_href = '<a target="_blank" href="' + self._ccmi_link +\
-                        '">CCMI NeST</a>'
-            hiview_href = '<a target="_bank" href="' +\
-                          self._hiview_link +\
-                          '">Click here to view whole ' \
-                          'hierarchy in HiView</a><br/>'
-
+            # Rename subsystem, update description, version, and reference
             net_attrs = sub_network.get_network_attributes()
 
             if sub_net_name.startswith('NEST:'):
@@ -236,13 +268,48 @@ class NDExNeSTLoader(object):
             else:
                 net_attrs['name'] = 'NeST: ' + sub_net_name
 
-            net_attrs['Description'] = 'This network represents a subsystem of<br/>' +\
-                                       ccmi_href + ' hierarchy<br/>' + hiview_href
-            sub_network.set_network_attributes(net_attrs)
-            # Save subsystem as new network
-            self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
+            if 'Description' in net_attrs:
+                del net_attrs['Description']
 
-            # Save subsystem to networkset
+            net_attrs['description'] = '<p>This network represents a ' \
+                                       'subsystem of the NeST ' \
+                                       'hierarchical model, generated ' \
+                                       'under the <b>C</b>ancer ' \
+                                       '<b>C</b>ell <b>M</b>aps ' \
+                                       '<b>I</b>nitiative (<b>CCMI</b>).' \
+                                       '</p><p>For more information about ' \
+                                       'NeST: <a href="https://ccmi.org/' \
+                                       'nest"><b>ccmi.org/nest</b></a></p>' \
+                                       '<p>Explore the NeST map in <a href' \
+                                       '="https://www.ndexbio.org/viewer/' \
+                                       'networks/9a8f5326-aa6e-11ea-aaef-' \
+                                       '0ac135e8bacf"><b>NDEx</b></a></p><p>' \
+                                       'Browse the NeST map in <a href="http://' \
+                                       'hiview.ucsd.edu/274fcd6c-1adc-11ea-a7' \
+                                       '41-0660b7976219?type=test&amp;server=' \
+                                       'https://test.ndexbio.edu"><b>HiView' \
+                                       '</b></a></p>'
+            net_attrs['version'] = '20211001'
+            net_attrs['reference'] = '<p>Zheng F.<i>et al</i>.<br/><b> ' \
+                                     'Interpretation of cancer mutations ' \
+                                     'using a multiscale map of protein ' \
+                                     'systems</b>.<br/>Science. 2021 Oct;374' \
+                                     '(6563)<br/>doi: <a href="https://doi.' \
+                                     'org/10.1126/science.abf3067">10.1126/' \
+                                     'science.abf3067</a></p>'
+            sub_network.set_network_attributes(net_attrs)
+
+            network_dict = self.check_for_existing_networks()
+
+            if net_attrs['name'] in network_dict:
+                # this is an update
+                logger.info('Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
+                cx_stream = io.BytesIO(json.dumps(sub_network.to_cx2(),
+                                       cls=DecimalEncoder).encode('utf-8'))
+                self._ndexclient.update_cx2_network(cx_stream, network_dict[net_attrs['name']])
+            else:
+                # Save subsystem as new network
+                self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
 
         return 0
 
