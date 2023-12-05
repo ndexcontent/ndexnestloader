@@ -6,17 +6,18 @@ NDEx NeST SubNetworks Content Loader
 .. image:: https://img.shields.io/pypi/v/ndexnestloader.svg
         :target: https://pypi.python.org/pypi/ndexnestloader
 
-.. image:: https://img.shields.io/travis/ndexcontent/ndexnestloader.svg
-        :target: https://travis-ci.com/ndexcontent/ndexnestloader
+.. image:: https://api.travis-ci.com/ndexcontent/ndexnestloader.svg?branch=main
+        :target: https://app.travis-ci.com/ndexcontent/ndexnestloader
 
 .. image:: https://readthedocs.org/projects/ndexnestloader/badge/?version=latest
         :target: https://ndexnestloader.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
 
-
-
-Python Boilerplate contains all the boilerplate you need to create a Python NDEx Content Loader package.
+Extracts Nested Systems in Tumors NeST_ subnetworks from `NeST Hiview Hierarchy`_ and
+loads them as new networks in NDEx_ As part of the extraction the networks are named
+the same as the system names designated on the `NeST Hiview Hierarchy`_. A reference, version,
+and description is also set.
 
 
 * Free software: MIT license
@@ -33,7 +34,7 @@ Dependencies
 Compatibility
 -------------
 
-* Python 3.3+
+* Python 3.8+
 
 Installation
 ------------
@@ -132,7 +133,7 @@ Via Docker
 
 .. code-block::
 
-   docker run -v `pwd`:`pwd` -w `pwd` ndexcontent/ndexnestloader:0.1.0 ndexloadnestsubnetworks.py --conf conf # TODO Add other needed arguments here
+   Coming soon...
 
 
 Credits
@@ -144,3 +145,5 @@ This package was created with Cookiecutter_ and the `audreyr/cookiecutter-pypack
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
 .. _NDEx: http://www.ndexbio.org
+.. _NeST: https://idekerlab.ucsd.edu/nest
+.. _`NeST Hiview Hierarchy`: http://hiview.ucsd.edu/274fcd6c-1adc-11ea-a741-0660b7976219?type=test&server=https://test.ndexbio.edu
