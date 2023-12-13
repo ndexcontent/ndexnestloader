@@ -266,7 +266,7 @@ class NDExNeSTLoader(object):
             if sub_net_name.startswith('NEST:'):
                 net_attrs['name'] = re.sub('^NEST:', 'NeST:', sub_net_name)
             else:
-                net_attrs['name'] = 'NeST: ' + sub_net_name
+                net_attrs['name'] = sub_net_name
 
             if 'Description' in net_attrs:
                 del net_attrs['Description']

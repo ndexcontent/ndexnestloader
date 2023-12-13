@@ -26,7 +26,7 @@ class TestNdexnestloader(unittest.TestCase):
         res = ndexloadnestsubnetworks._parse_arguments('hi', [])
 
         self.assertEqual(res.profile, 'ndexnestloader')
-        self.assertEqual(res.verbose, 0)
+        self.assertEqual(res.verbose, 1)
         self.assertEqual(res.logconf, None)
         self.assertEqual(res.conf, None)
 
@@ -35,7 +35,7 @@ class TestNdexnestloader(unittest.TestCase):
         res = ndexloadnestsubnetworks._parse_arguments('hi', someargs)
 
         self.assertEqual(res.profile, 'myprofy')
-        self.assertEqual(res.verbose, 2)
+        self.assertEqual(res.verbose, 3)
         self.assertEqual(res.logconf, 'hi')
         self.assertEqual(res.conf, 'foo')
 
@@ -90,7 +90,7 @@ format=%(asctime)s %(name)-12s %(levelname)-8s %(message)s""")
     def test_main(self):
         """Tests main function"""
 
-        # try where loading config is successful
+        # try where loading config is failure
         try:
             temp_dir = tempfile.mkdtemp()
             confile = os.path.join(temp_dir, 'some.conf')
@@ -104,6 +104,6 @@ format=%(asctime)s %(name)-12s %(levelname)-8s %(message)s""")
             res = ndexloadnestsubnetworks.main(['myprog.py', '--conf',
                                                      confile, '--profile',
                                                      'hi'])
-            self.assertEqual(res, 0)
+            self.assertEqual(res, 2)
         finally:
             shutil.rmtree(temp_dir)
