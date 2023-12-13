@@ -48,7 +48,7 @@ setup(
     packages=find_packages(include=['ndexnestloader']),
     package_dir={'ndexnestloader': 'ndexnestloader'},
     package_data={'ndexnestloader': ['loadplan.json',
-                                       'style.cx']},
+                                       'style.cx2']},
     scripts=[ 'ndexnestloader/ndexloadnestsubnetworks.py'],
     setup_requires=setup_requirements,
     test_suite='tests',

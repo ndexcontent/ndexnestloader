@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 
+import os
 import io
 import argparse
 import sys
@@ -223,6 +224,19 @@ class NDExNeSTLoader(object):
             network_dict[ns['name']] = ns['externalId']
         return network_dict
 
+    def get_style_from_network(self):
+        """
+        Gets visualProperties from style network within package
+
+        :return:
+        """
+        cx2network = None
+        cxfile = os.path.join(os.path.dirname(ndexnestloader.__file__), 'style.cx2')
+        with open(cxfile, 'r') as f:
+            cx2network = self._cx2factory.get_cx2network(json.load(f))
+
+        return cx2network.get_visual_properties()
+
     def run(self):
         """
         Runs content loading for NDEx NeST SubNetworks Content Loader
@@ -239,6 +253,8 @@ class NDExNeSTLoader(object):
         # Load Hierarchy
         hierarchy = self.get_network_from_ndex(ndexclient=testclient,
                                                network_uuid=self._hierarchy)
+
+        visual_props = self.get_style_from_network()
 
         # For each node in hierarchy
         for node in hierarchy.get_nodes().items():
@@ -298,6 +314,8 @@ class NDExNeSTLoader(object):
                                      'org/10.1126/science.abf3067">10.1126/' \
                                      'science.abf3067</a></p>'
             sub_network.set_network_attributes(net_attrs)
+
+            sub_network.set_visual_properties(visual_props)
 
             network_dict = self.check_for_existing_networks()
 
