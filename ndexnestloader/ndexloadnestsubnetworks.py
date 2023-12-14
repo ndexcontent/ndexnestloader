@@ -216,11 +216,6 @@ class NDExNeSTLoader(object):
                              ' does not match owner. Skipping')
                 continue
 
-            if not ns['name'].startswith('NeST:'):
-                logger.debug('Network ' + ns['name'] + ' UUID: ' +
-                             ns['externalId'] +
-                             ' does not start with NeST: Skipping')
-                continue
             network_dict[ns['name']] = ns['externalId']
         return network_dict
 
