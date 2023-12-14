@@ -50,6 +50,10 @@ def _parse_arguments(desc, args):
                         help='Maximum size of NeST subnetwork to extract')
     parser.add_argument('--visibility', default='PUBLIC', choices=['PUBLIC', 'PRIVATE'],
                         help='Denotes visibility of uploaded subnetworks on NDEx')
+    parser.add_argument('--dryrun', action='store_true',
+                        help='Run the processing, but do NOT upload networks to NDEx. '
+                             'Operation that would be performed is output as INFO level'
+                             'log message')
     parser.add_argument('--logconf', default=None,
                         help='Path to python logging configuration file in '
                              'this format: https://docs.python.org/3/library/'
@@ -111,6 +115,7 @@ class NDExNeSTLoader(object):
         self._conf_file = args.conf
         self._profile = args.profile
         self._visibility = args.visibility
+        self._dryrun = args.dryrun
         self._user = None
         self._pass = None
         self._server = None
@@ -183,7 +188,7 @@ class NDExNeSTLoader(object):
         split_link = i_link.split('](')
         return split_link[0][1:], split_link[1][:-1]
 
-    def check_for_existing_networks(self):
+    def check_for_existing_networks(self, ignore_owner=False):
         """
         Query for networks owned by user and create a map of
         name to UUID
@@ -210,7 +215,7 @@ class NDExNeSTLoader(object):
                              str(ns['externalId'] +
                                  ' lacks a name. Skipping'))
                 continue
-            if ns['owner'] != self._user:
+            if ignore_owner is False and ns['owner'] != self._user:
                 logger.debug('Network ' + ns['name'] + ' UUID: ' +
                              ns['externalId'] +
                              ' does not match owner. Skipping')
@@ -232,6 +237,25 @@ class NDExNeSTLoader(object):
 
         return cx2network.get_visual_properties()
 
+    def get_number_of_orphan_nodes(self, network):
+        """
+        Examines network for any orphan nodes
+
+        :param network:
+        :type network: :py:class:`~ndex2.cx2.CX2Network`
+        :return: Number of orphan nodes
+        :rtype: int
+        """
+        node_ids = set()
+        for key in network.get_nodes().keys():
+            node_ids.add(key)
+
+        nodes_with_edges = set()
+        for key, val in network.get_edges().items():
+            nodes_with_edges.add(val['s'])
+            nodes_with_edges.add(val['t'])
+        return len(node_ids-nodes_with_edges)
+
     def run(self):
         """
         Runs content loading for NDEx NeST SubNetworks Content Loader
@@ -249,8 +273,11 @@ class NDExNeSTLoader(object):
         hierarchy = self.get_network_from_ndex(ndexclient=testclient,
                                                network_uuid=self._hierarchy)
 
+        network_dict = self.check_for_existing_networks()
+
         visual_props = self.get_style_from_network()
 
+        orphon_node_nets = []
         # For each node in hierarchy
         for node in hierarchy.get_nodes().items():
             if not 'ndex:internalLink' in node[1]['v']:
@@ -312,18 +339,41 @@ class NDExNeSTLoader(object):
 
             sub_network.set_visual_properties(visual_props)
 
-            network_dict = self.check_for_existing_networks()
+            num_orphans = self.get_number_of_orphan_nodes(sub_network)
+            if num_orphans > 0:
+                logger.debug(net_attrs['name'] + ' has ' + str(num_orphans) + ' orphan nodes')
+                orphon_node_nets.append((net_attrs['name'], num_orphans, len(sub_network.get_nodes())))
 
             if net_attrs['name'] in network_dict:
                 # this is an update
                 logger.info('Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
-                cx_stream = io.BytesIO(json.dumps(sub_network.to_cx2(),
-                                       cls=DecimalEncoder).encode('utf-8'))
-                self._ndexclient.update_cx2_network(cx_stream, network_dict[net_attrs['name']])
+                if self._dryrun is True:
+                    logger.info('Dry run: ' + 'Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
+                else:
+                    cx_stream = io.BytesIO(json.dumps(sub_network.to_cx2(),
+                                           cls=DecimalEncoder).encode('utf-8'))
+                    self._ndexclient.update_cx2_network(cx_stream, network_dict[net_attrs['name']])
             else:
-                # Save subsystem as new network
-                self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
+                if self._dryrun is True:
+                    logger.info('Dry run: Saving network ' + net_attrs['name'])
+                else:
+                    # Save subsystem as new network
+                    self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
 
+        special_netdict = self.check_for_existing_networks(ignore_owner=True)
+        logger.info(str(len(orphon_node_nets)) + ' networks with orphan nodes:')
+
+        # was told not to use public.ndexbio.org for browser web links so catch
+        # it and replace with www for this server only
+        server_url = self._server
+        if server_url == 'public.ndexbio.org':
+            server_url = 'www.ndexbio.org'
+
+        for net_info in orphon_node_nets:
+            logger.info(net_info[0] + ' (orphan ' + str(net_info[1]) +
+                         ' / ' + str(net_info[2]) +
+                         ' total)  => https://' + str(server_url) + '/viewer/networks/' +
+                         special_netdict[net_info[0]])
         return 0
 
 
