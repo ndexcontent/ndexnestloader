@@ -21,6 +21,21 @@ TSV2NICECXMODULE = 'ndexutil.tsv.tsv2nicecx2'
 LOG_FORMAT = "%(asctime)-15s %(levelname)s %(relativeCreated)dms " \
              "%(filename)s::%(funcName)s():%(lineno)d %(message)s"
 
+GENERATED_BY_ATTRIB = 'prov:wasGeneratedBy'
+"""
+Network attribute to denote what created this network
+"""
+
+DERIVED_FROM_ATTRIB = 'prov:wasDerivedFrom'
+"""
+Network attribute to denote source of network data
+"""
+
+NDEX_TEST_SERVER = 'test.ndexbio.org'
+"""
+NDEx test server where NeST hierarchy resides
+"""
+
 
 class Formatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
     pass
@@ -267,7 +282,7 @@ class NDExNeSTLoader(object):
         self._create_ndex_connection()
 
         # test client
-        testclient = Ndex2(host='test.ndexbio.org', skip_version_check=True,
+        testclient = Ndex2(host=NDEX_TEST_SERVER, skip_version_check=True,
                            user_agent=self._get_user_agent())
         # Load Hierarchy
         hierarchy = self.get_network_from_ndex(ndexclient=testclient,
@@ -335,14 +350,24 @@ class NDExNeSTLoader(object):
                                      '(6563)<br/>doi: <a href="https://doi.' \
                                      'org/10.1126/science.abf3067">10.1126/' \
                                      'science.abf3067</a></p>'
+            net_attrs[GENERATED_BY_ATTRIB] = '<a href="https://github.com/' +\
+                                             'ndexcontent/ndexnestloader"' +\
+                                             '>ndexnestloader ' + \
+                                             str(ndexnestloader.__version__) +\
+                                             '</a>'
+            net_attrs[DERIVED_FROM_ATTRIB] = '<a href="' +\
+                                             self._get_test_network_url(sub_net_uuid) +\
+                                             '" target="_blank">' + sub_net_uuid +\
+                                             '</a>'
             sub_network.set_network_attributes(net_attrs)
 
             sub_network.set_visual_properties(visual_props)
 
             num_orphans = self.get_number_of_orphan_nodes(sub_network)
             if num_orphans > 0:
-                logger.debug(net_attrs['name'] + ' has ' + str(num_orphans) + ' orphan nodes')
+                logger.warning(net_attrs['name'] + ' has ' + str(num_orphans) + ' orphan nodes. Skipping upload')
                 orphon_node_nets.append((net_attrs['name'], num_orphans, len(sub_network.get_nodes())))
+                continue
 
             if net_attrs['name'] in network_dict:
                 # this is an update
@@ -360,21 +385,15 @@ class NDExNeSTLoader(object):
                     # Save subsystem as new network
                     self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
 
-        special_netdict = self.check_for_existing_networks(ignore_owner=True)
-        logger.info(str(len(orphon_node_nets)) + ' networks with orphan nodes:')
-
-        # was told not to use public.ndexbio.org for browser web links so catch
-        # it and replace with www for this server only
-        server_url = self._server
-        if server_url == 'public.ndexbio.org':
-            server_url = 'www.ndexbio.org'
-
-        for net_info in orphon_node_nets:
-            logger.info(net_info[0] + ' (orphan ' + str(net_info[1]) +
-                         ' / ' + str(net_info[2]) +
-                         ' total)  => https://' + str(server_url) + '/viewer/networks/' +
-                         special_netdict[net_info[0]])
         return 0
+
+    def _get_test_network_url(self, network_id):
+        """
+        Gets URL for source NeST subsystem network
+
+        :return:
+        """
+        return 'https://' + NDEX_TEST_SERVER + '/viewer/networks/' + network_id
 
 
 def main(args):
