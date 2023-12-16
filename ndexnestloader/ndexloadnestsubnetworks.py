@@ -36,6 +36,12 @@ NDEX_TEST_SERVER = 'test.ndexbio.org'
 NDEx test server where NeST hierarchy resides
 """
 
+ORPHAN_NODES = 'ORPHAN NODES:'
+"""
+Prefix put on networks with orphan names if
+--saveonlyorphans flag is set
+"""
+
 
 class Formatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
     pass
@@ -69,6 +75,9 @@ def _parse_arguments(desc, args):
                         help='Run the processing, but do NOT upload networks to NDEx. '
                              'Operation that would be performed is output as INFO level'
                              'log message')
+    parser.add_argument('--saveonlyorphans', action='store_true',
+                        help='If set, only saves networks with orphan nodes and prefixes the network'
+                             'with ' + ORPHAN_NODES)
     parser.add_argument('--logconf', default=None,
                         help='Path to python logging configuration file in '
                              'this format: https://docs.python.org/3/library/'
@@ -131,6 +140,7 @@ class NDExNeSTLoader(object):
         self._profile = args.profile
         self._visibility = args.visibility
         self._dryrun = args.dryrun
+        self._saveonlyorphans = args.saveonlyorphans
         self._user = None
         self._pass = None
         self._server = None
@@ -365,27 +375,49 @@ class NDExNeSTLoader(object):
 
             num_orphans = self.get_number_of_orphan_nodes(sub_network)
             if num_orphans > 0:
-                logger.warning(net_attrs['name'] + ' has ' + str(num_orphans) + ' orphan nodes. Skipping upload')
                 orphon_node_nets.append((net_attrs['name'], num_orphans, len(sub_network.get_nodes())))
+                if self._saveonlyorphans is True:
+                    net_attrs['name'] = ORPHAN_NODES + net_attrs['name']
+                    sub_network.set_network_attributes(net_attrs)
+                    self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
+                else:
+                    logger.warning(net_attrs['name'] + ' has ' + str(num_orphans) + ' orphan nodes. Skipping upload')
                 continue
 
-            if net_attrs['name'] in network_dict:
-                # this is an update
-                logger.info('Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
-                if self._dryrun is True:
-                    logger.info('Dry run: ' + 'Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
-                else:
-                    cx_stream = io.BytesIO(json.dumps(sub_network.to_cx2(),
-                                           cls=DecimalEncoder).encode('utf-8'))
-                    self._ndexclient.update_cx2_network(cx_stream, network_dict[net_attrs['name']])
+            if self._saveonlyorphans is False:
+                self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
             else:
-                if self._dryrun is True:
-                    logger.info('Dry run: Saving network ' + net_attrs['name'])
-                else:
-                    # Save subsystem as new network
-                    self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
+                logger.info('Skipping save of ' + net_attrs['name'] +
+                            ' because --saveonlyorphans flag is set '
+                            'and this network has no orphan nodes')
 
         return 0
+
+    def _save_update_network(self, net_attrs=None, network_dict=None, sub_network=None):
+        """
+
+        :param net_attrs:
+        :param network_dict:
+        :param sub_network:
+        :return:
+        """
+        if net_attrs['name'] in network_dict:
+            # this is an update
+            logger.info('Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
+            if self._dryrun is True:
+                logger.info(
+                    'Dry run: ' + 'Updating network ' + net_attrs['name'] + ' ' + network_dict[net_attrs['name']])
+            else:
+                cx_stream = io.BytesIO(json.dumps(sub_network.to_cx2(),
+                                                  cls=DecimalEncoder).encode('utf-8'))
+                self._ndexclient.update_cx2_network(cx_stream, network_dict[net_attrs['name']])
+        else:
+            if self._dryrun is True:
+                logger.info('Dry run: Saving network ' + net_attrs['name'])
+            else:
+                # Save subsystem as new network
+                self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
+
 
     def _get_test_network_url(self, network_id):
         """
@@ -409,6 +441,9 @@ def main(args):
     Version {version}
 
     Loads NDEx NeST SubNetworks Content Loader data into NDEx (http://ndexbio.org).
+    
+    NeST subnetworks with orphan nodes are currently excluded as are any networks
+    that exceed --maxsize of 100 nodes. 
     
     To connect to NDEx server a configuration file must be passed
     into --conf parameter. If --conf is unset the configuration 
