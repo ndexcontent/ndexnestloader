@@ -19,7 +19,9 @@ with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
 requirements = ['ndex2>=3.6.0',
-                'ndexutil']
+                'ndexutil',
+                'requests',
+                'tqdm']
 
 setup_requirements = [ ]
 
