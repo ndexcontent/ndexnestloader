@@ -4,10 +4,14 @@ import os
 import io
 import argparse
 import sys
-import re
+import csv
 import json
 import logging
+import tempfile
+import shutil
+import requests
 from logging import config
+from tqdm import tqdm
 from ndexutil.config import NDExUtilConfig
 from ndex2.client import Ndex2, DecimalEncoder
 from ndex2.cx2 import RawCX2NetworkFactory
@@ -64,20 +68,30 @@ def _parse_arguments(desc, args):
                                           '(default '
                                           'ndexnestloader)',
                         default='ndexnestloader')
-    parser.add_argument('--hierarchy', default='274fcd6c-1adc-11ea-a741-0660b7976219',
-                        help='NDEx UUID of NeST hierarchy used to extract subnetworks '
-                             'and to name those subnetworks')
+    parser.add_argument('--nest',
+                        default='9a8f5326-aa6e-11ea-aaef-0ac135e8bacf',
+                        help='NDEx UUID of NeST Map - Main Model used to '
+                             'define members of subnetworks as well as the '
+                             'names of those subnetworks')
+    parser.add_argument('--ias_score',
+                        default='https://zenodo.org/records/4516939/files/'
+                                'IAS_score.tsv?download=1',
+                        help='Path to IAS_score.tsv file or URL to download '
+                             'file')
     parser.add_argument('--maxsize', default=100, type=int,
                         help='Maximum size of NeST subnetwork to extract')
-    parser.add_argument('--visibility', default='PUBLIC', choices=['PUBLIC', 'PRIVATE'],
-                        help='Denotes visibility of uploaded subnetworks on NDEx')
+    parser.add_argument('--visibility', default='PUBLIC',
+                        choices=['PUBLIC', 'PRIVATE'],
+                        help='Denotes visibility of uploaded subnetworks '
+                             'on NDEx')
     parser.add_argument('--dryrun', action='store_true',
-                        help='Run the processing, but do NOT upload networks to NDEx. '
-                             'Operation that would be performed is output as INFO level'
-                             'log message')
-    parser.add_argument('--saveonlyorphans', action='store_true',
-                        help='If set, only saves networks with orphan nodes and prefixes the network'
-                             'with ' + ORPHAN_NODES)
+                        help='Run the processing, but do NOT upload networks '
+                             'to NDEx. Operation that would be performed is '
+                             'output as INFO level log message')
+    parser.add_argument('--tempdir',
+                        help='Sets alternate temporary directory used to '
+                             'store IAS_Score.tsv file. This directory must exist '
+                             'and be writable')
     parser.add_argument('--logconf', default=None,
                         help='Path to python logging configuration file in '
                              'this format: https://docs.python.org/3/library/'
@@ -140,13 +154,14 @@ class NDExNeSTLoader(object):
         self._profile = args.profile
         self._visibility = args.visibility
         self._dryrun = args.dryrun
-        self._saveonlyorphans = args.saveonlyorphans
+        self._tempdir = args.tempdir
         self._user = None
         self._pass = None
         self._server = None
         self._ndexclient = None
         self._version = args.version
-        self._hierarchy = args.hierarchy
+        self._nest = args.nest
+        self._ias_score = args.ias_score
         self._maxsize = args.maxsize
         self._cx2factory = cx2factory
 
@@ -167,6 +182,61 @@ class NDExNeSTLoader(object):
             self._ndexclient = Ndex2(host=self._server, username=self._user,
                                      password=self._pass, user_agent=self._get_user_agent(),
                                      skip_version_check=True)
+
+    def _download_ias_score(self, tempdir):
+        """
+        If needed downloads ias_score
+
+        :return: Path to ias_score.tsv file
+        :rtype: str
+        """
+        if os.path.isfile(self._ias_score):
+            return self._ias_score
+
+        # use python requests to download the file and then get its results
+        local_file = os.path.join(tempdir,
+                                  self._ias_score.split('/')[-1])
+
+        with requests.get(self._ias_score,
+                          stream=True) as r:
+            content_size = int(r.headers.get('content-length', 0))
+            tqdm_bar = tqdm(desc='Downloading ' + os.path.basename(local_file),
+                            total=content_size,
+                            unit='B', unit_scale=True,
+                            unit_divisor=1024)
+            logger.debug('Downloading ' + str(self._ias_score) +
+                         ' of size ' + str(content_size) +
+                         'b to ' + local_file)
+            try:
+                r.raise_for_status()
+                with open(local_file, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        tqdm_bar.update(len(chunk))
+            finally:
+                tqdm_bar.close()
+
+        return local_file
+
+    def _get_ias_score_map(self):
+
+        score_map = {}
+        if self._tempdir is None:
+            tempdir = tempfile.mkdtemp()
+            logger.debug('Creating temp directory: ' + tempdir)
+        try:
+            ias_score_file = self._download_ias_score(tempdir)
+            with open(ias_score_file, 'r', newline='') as f:
+                reader = csv.DictReader(f, delimiter='\t')
+                for row in reader:
+                    if row['Protein 1'] not in score_map:
+                        score_map[row['Protein 1']] = {}
+                    score_map[row['Protein 1']][row['Protein 2']] = row
+            return score_map
+        finally:
+            if self._tempdir is None:
+                logger.debug('Removing temp directory: ' + tempdir)
+                shutil.rmtree(tempdir)
 
     def _parse_config(self):
             """
@@ -195,23 +265,26 @@ class NDExNeSTLoader(object):
         client_resp = myclient.get_network_as_cx2_stream(network_uuid)
         return self._cx2factory.get_cx2network(client_resp.json())
 
-    def get_name_and_uuid_of_subnetwork(self, node):
+    def get_name_and_genes_from_node(self, node):
         """
-        Gets name and subnetwork UUID from old format hiview network hierarchy.
+        Gets name and genes of assembly from NeST Map - Model Model **node**
 
         :param node: Node from :py:class:`~ndex2.cx2.CX2Network` that is a dictionary
                      of dictionaries and the node attributes are under ``'v'`` key
         :type node: dict
-        :return: (name, subnetwork UUID)
+        :return: (name, list of gene names)
         :rtype: tuple
         """
-        i_link = node['v']['ndex:internalLink']
-
-        # the value in i_link will look something like this
-        # [Vesicle membrane fusion](046718a6-2c3b-11eb-890f-0660b7976219)
-        # the next command splits and we use simple trimming to get values
-        split_link = i_link.split('](')
-        return split_link[0][1:], split_link[1][:-1]
+        if 'v' not in node:
+            logger.info('No "v" key in node: ' + str(node))
+            return None, None
+        if 'Genes' not in node['v']:
+            logger.info('No "Genes" key under "v" in node: ' + str(node))
+            return None, None
+        name = None
+        if 'Annotation' in node['v']:
+            name = node['v']['Annotation']
+        return name, node['v']['Genes'].split(' ')
 
     def check_for_existing_networks(self, ignore_owner=False):
         """
@@ -291,45 +364,38 @@ class NDExNeSTLoader(object):
         self._parse_config()
         self._create_ndex_connection()
 
-        # test client
-        testclient = Ndex2(host=NDEX_TEST_SERVER, skip_version_check=True,
-                           user_agent=self._get_user_agent())
         # Load Hierarchy
-        hierarchy = self.get_network_from_ndex(ndexclient=testclient,
-                                               network_uuid=self._hierarchy)
+        hierarchy = self.get_network_from_ndex(network_uuid=self._nest)
 
         network_dict = self.check_for_existing_networks()
 
         visual_props = self.get_style_from_network()
 
-        orphon_node_nets = []
+        score_map = self._get_ias_score_map()
         # For each node in hierarchy
         for node in hierarchy.get_nodes().items():
-            if not 'ndex:internalLink' in node[1]['v']:
+            name, gene_list = self.get_name_and_genes_from_node(node[1])
+            if name is None:
                 continue
-            sub_net_name, sub_net_uuid = self.get_name_and_uuid_of_subnetwork(node[1])
-            if sub_net_name.startswith('NEST:'):
-                logger.info('Skipping ' + sub_net_name + ' since it lacks a name')
+            if name.startswith('NEST:'):
+                logger.debug('Skipping ' + name + ' because assembly lacks a name')
                 continue
 
-            # load subsystem as network and skip if exceeds self._maxsize number of nodes
-            sub_network = self.get_network_from_ndex(ndexclient=testclient,
-                                                     network_uuid=sub_net_uuid)
-            num_nodes = len(sub_network.get_nodes().keys())
+            num_nodes = len(gene_list)
             if num_nodes > self._maxsize:
-                logger.info('Skipping ' + sub_net_name + ' because it has ' +
+                logger.info('Skipping ' + name + ' because it has ' +
                             str(num_nodes) +
                             ' which exceeds --maxsize cutoff of ' +
                             str(self._maxsize))
                 continue
 
+            # create network from gene_list
+            sub_network = self._create_network_from_gene_list(gene_list, score_map=score_map)
+
             # Rename subsystem, update description, version, and reference
             net_attrs = sub_network.get_network_attributes()
 
-            if sub_net_name.startswith('NEST:'):
-                net_attrs['name'] = re.sub('^NEST:', 'NeST:', sub_net_name)
-            else:
-                net_attrs['name'] = sub_net_name
+            net_attrs['name'] = name
 
             if 'Description' in net_attrs:
                 del net_attrs['Description']
@@ -366,32 +432,72 @@ class NDExNeSTLoader(object):
                                              str(ndexnestloader.__version__) +\
                                              '</a>'
             net_attrs[DERIVED_FROM_ATTRIB] = '<a href="' +\
-                                             self._get_test_network_url(sub_net_uuid) +\
-                                             '" target="_blank">' + sub_net_uuid +\
-                                             '</a>'
+                                             self._get_network_url(self._nest) +\
+                                             '" target="_blank">NeST Map - ' \
+                                             'Main Model</a>'
+
+            self._add_assembly_attributes_as_net_attributes(node[1], net_attrs=net_attrs)
             sub_network.set_network_attributes(net_attrs)
 
             sub_network.set_visual_properties(visual_props)
 
-            num_orphans = self.get_number_of_orphan_nodes(sub_network)
-            if num_orphans > 0:
-                orphon_node_nets.append((net_attrs['name'], num_orphans, len(sub_network.get_nodes())))
-                if self._saveonlyorphans is True:
-                    net_attrs['name'] = ORPHAN_NODES + net_attrs['name']
-                    sub_network.set_network_attributes(net_attrs)
-                    self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
-                else:
-                    logger.warning(net_attrs['name'] + ' has ' + str(num_orphans) + ' orphan nodes. Skipping upload')
-                continue
-
-            if self._saveonlyorphans is False:
-                self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
-            else:
-                logger.info('Skipping save of ' + net_attrs['name'] +
-                            ' because --saveonlyorphans flag is set '
-                            'and this network has no orphan nodes')
-
+            self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
         return 0
+
+    def _add_assembly_attributes_as_net_attributes(self, node, net_attrs=None):
+        """
+
+        :param node:
+        :param net_attrs:
+        :return:
+        """
+        for entry in node['v'].items():
+            if entry[0] in ['name', 'Annotation', 'Size', 'Size-Log', 'Genes']:
+                continue
+            net_attrs[entry[0]] = entry[1]
+
+    def _get_score_map_edge_attributes(self, ias_attributes):
+        """
+
+        :param ias_attributes:
+        :return:
+        """
+        res = {}
+        for key in ias_attributes:
+            if key == 'Protein 1' or key == 'Protein 2':
+                continue
+            res[key] = ias_attributes[key]
+        return res
+
+    def _create_network_from_gene_list(self, gene_list, score_map=None):
+        """
+        Creates network from gene list and score map which has format
+        of protein 1 => protein 2 => {scores}
+        :param gene_list: List of genes
+        :type gene_list: list
+        :param score_map:
+        :type score_map: dict
+        :return: Network created from ias_score and gene list
+        :rtype: :py:class:`~ndex2.cx2.CX2Network`
+        """
+        node_map = {}
+        net = CX2Network()
+        for protein_one in gene_list:
+            if protein_one not in score_map:
+                continue
+            if protein_one not in node_map:
+                node_map[protein_one] = net.add_node(attributes={'name': protein_one})
+
+            for protein_two in gene_list:
+                if not protein_two in score_map[protein_one]:
+                    continue
+                if protein_two not in node_map:
+                    node_map[protein_two] = net.add_node(attributes={'name': protein_two})
+
+                net.add_edge(source=node_map[protein_one],
+                             target=node_map[protein_two],
+                             attributes=self._get_score_map_edge_attributes(score_map[protein_one][protein_two]))
+        return net
 
     def _save_update_network(self, net_attrs=None, network_dict=None, sub_network=None):
         """
@@ -418,14 +524,16 @@ class NDExNeSTLoader(object):
                 # Save subsystem as new network
                 self._ndexclient.save_new_cx2_network(sub_network.to_cx2(), visibility=self._visibility)
 
-
-    def _get_test_network_url(self, network_id):
+    def _get_network_url(self, network_id):
         """
         Gets URL for source NeST subsystem network
 
         :return:
         """
-        return 'https://' + NDEX_TEST_SERVER + '/viewer/networks/' + network_id
+        server_url = self._server
+        if server_url == 'public.ndexbio.org':
+            server_url = 'www.ndexbio.org'
+        return 'https://' + server_url + '/viewer/networks/' + network_id
 
 
 def main(args):
