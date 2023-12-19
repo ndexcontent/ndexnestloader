@@ -1,0 +1,6 @@
+Protein 1	Protein 2	Integrated score	evidence: Protein co-expression	evidence: Co-dependence	evidence: Sequence similarity	evidence: Physical	evidence: mRNA co-expression
+A1BG	A2M	0.195	0.48	0.003	0.01	0.151	0.078
+A1BG	ABCB4	0.208	0.007	0.0	0.112	0.092	0.316
+A1BG	ABCB11	0.231	0.002	0.001	0.071	0.096	0.316
+A1CF	ABAT	0.196	0.04	0.045	0.119	0.115	0.256
+A1CF	ABCG5	0.211	0.047	0.058	0.015	0.071	0.299
