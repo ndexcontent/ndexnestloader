@@ -230,6 +230,14 @@ class NDExNeSTLoader(object):
         return local_file
 
     def _get_ias_score_map(self):
+        """
+        Loads IAS_score.tsv file passed in via constructor as a dict
+        where the key PROTEIN_ONE column value and the value is a map
+        with the remaining columns as keys and values.
+
+        :return:
+        :rtype: dict
+        """
 
         score_map = {}
 
@@ -391,51 +399,13 @@ class NDExNeSTLoader(object):
             # create network from gene_list
             sub_network = self._create_network_from_gene_list(gene_list, score_map=score_map)
 
-            # Rename subsystem, update description, version, and reference
             net_attrs = sub_network.get_network_attributes()
 
-            net_attrs['name'] = name
-
-            if 'Description' in net_attrs:
-                del net_attrs['Description']
-
-            net_attrs['description'] = '<p>This network represents a ' \
-                                       'subsystem of the NeST ' \
-                                       'hierarchical model, generated ' \
-                                       'under the <b>C</b>ancer ' \
-                                       '<b>C</b>ell <b>M</b>aps ' \
-                                       '<b>I</b>nitiative (<b>CCMI</b>).' \
-                                       '</p><p>For more information about ' \
-                                       'NeST: <a href="https://ccmi.org/' \
-                                       'nest"><b>ccmi.org/nest</b></a></p>' \
-                                       '<p>Explore the NeST map in <a href' \
-                                       '="https://www.ndexbio.org/viewer/' \
-                                       'networks/9a8f5326-aa6e-11ea-aaef-' \
-                                       '0ac135e8bacf"><b>NDEx</b></a></p><p>' \
-                                       'Browse the NeST map in <a href="http://' \
-                                       'hiview.ucsd.edu/274fcd6c-1adc-11ea-a7' \
-                                       '41-0660b7976219?type=test&amp;server=' \
-                                       'https://test.ndexbio.edu"><b>HiView' \
-                                       '</b></a></p>'
-            net_attrs['version'] = '20211001'
-            net_attrs['reference'] = '<p>Zheng F.<i>et al</i>.<br/><b> ' \
-                                     'Interpretation of cancer mutations ' \
-                                     'using a multiscale map of protein ' \
-                                     'systems</b>.<br/>Science. 2021 Oct;374' \
-                                     '(6563)<br/>doi: <a href="https://doi.' \
-                                     'org/10.1126/science.abf3067">10.1126/' \
-                                     'science.abf3067</a></p>'
-            net_attrs[GENERATED_BY_ATTRIB] = '<a href="https://github.com/' +\
-                                             'ndexcontent/ndexnestloader"' +\
-                                             '>ndexnestloader ' + \
-                                             str(ndexnestloader.__version__) +\
-                                             '</a>'
-            net_attrs[DERIVED_FROM_ATTRIB] = '<a href="' +\
-                                             self._get_network_url(self._nest) +\
-                                             '" target="_blank">NeST Map - ' \
-                                             'Main Model</a>'
+            # Rename subsystem, update description, version, and reference
+            self._update_network_attributes(name=name, net_attrs=net_attrs)
 
             self._add_assembly_attributes_as_net_attributes(node[1], net_attrs=net_attrs)
+
             sub_network.set_network_attributes(net_attrs)
 
             sub_network.set_visual_properties(visual_props)
@@ -443,23 +413,80 @@ class NDExNeSTLoader(object):
             self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
         return 0
 
-    def _add_assembly_attributes_as_net_attributes(self, node, net_attrs=None):
+    def _update_network_attributes(self, name=None, net_attrs=None):
         """
 
-        :param node:
+        :param assembly_node_attrs:
         :param net_attrs:
         :return:
         """
+        net_attrs['name'] = name
+
+        if 'Description' in net_attrs:
+            del net_attrs['Description']
+
+        net_attrs['description'] = '<p>This network represents a ' \
+                                   'subsystem of the NeST ' \
+                                   'hierarchical model, generated ' \
+                                   'under the <b>C</b>ancer ' \
+                                   '<b>C</b>ell <b>M</b>aps ' \
+                                   '<b>I</b>nitiative (<b>CCMI</b>).' \
+                                   '</p><p>For more information about ' \
+                                   'NeST: <a href="https://ccmi.org/' \
+                                   'nest"><b>ccmi.org/nest</b></a></p>' \
+                                   '<p>Explore the NeST map in <a href' \
+                                   '="https://www.ndexbio.org/viewer/' \
+                                   'networks/9a8f5326-aa6e-11ea-aaef-' \
+                                   '0ac135e8bacf"><b>NDEx</b></a></p><p>' \
+                                   'Browse the NeST map in <a href="http://' \
+                                   'hiview.ucsd.edu/274fcd6c-1adc-11ea-a7' \
+                                   '41-0660b7976219?type=test&amp;server=' \
+                                   'https://test.ndexbio.edu"><b>HiView' \
+                                   '</b></a></p>'
+        net_attrs['version'] = '20211001'
+        net_attrs['reference'] = '<p>Zheng F.<i>et al</i>.<br/><b> ' \
+                                 'Interpretation of cancer mutations ' \
+                                 'using a multiscale map of protein ' \
+                                 'systems</b>.<br/>Science. 2021 Oct;374' \
+                                 '(6563)<br/>doi: <a href="https://doi.' \
+                                 'org/10.1126/science.abf3067">10.1126/' \
+                                 'science.abf3067</a></p>'
+        net_attrs[GENERATED_BY_ATTRIB] = '<a href="https://github.com/' + \
+                                         'ndexcontent/ndexnestloader"' + \
+                                         '>ndexnestloader ' + \
+                                         str(ndexnestloader.__version__) + \
+                                         '</a>'
+        net_attrs[DERIVED_FROM_ATTRIB] = '<a href="' + \
+                                         self._get_network_url(self._nest) + \
+                                         '" target="_blank">NeST Map - ' \
+                                         'Main Model</a>'
+
+    def _add_assembly_attributes_as_net_attributes(self, node, net_attrs=None):
+        """
+        Adds attributes from a NeST assembly/node to **net_attrs** dict that
+        will be set as network attributes for subnetwork
+
+        :param node: Attributes in CX2 of NeST assembly node
+        :type node: dict
+        :param net_attrs:
+        :type net_attrs: dict
+        :return:
+        :rtype: dict
+        """
         for entry in node['v'].items():
-            if entry[0] in ['name', 'Annotation', 'Size', 'Size-Log', 'Genes']:
+            if entry[0] in ['n', 'name', 'Annotation', 'Size', 'Size-Log', 'Genes']:
                 continue
             net_attrs[entry[0]] = entry[1]
 
     def _get_score_map_edge_attributes(self, ias_attributes):
         """
+        Given a row of data from IAS_score.tsv stored as a dict
+        return that dict minus ``Protein 1`` and ``Protein 2``
 
-        :param ias_attributes:
-        :return:
+        :param ias_attributes: Attributes to add to edge
+        :type ias_attributes: dict
+        :return: Attributes to add to an edge
+        :rtype: dict
         """
         res = {}
         for key in ias_attributes:
@@ -472,6 +499,7 @@ class NDExNeSTLoader(object):
         """
         Creates network from gene list and score map which has format
         of protein 1 => protein 2 => {scores}
+
         :param gene_list: List of genes
         :type gene_list: list
         :param score_map:
@@ -500,11 +528,23 @@ class NDExNeSTLoader(object):
 
     def _save_update_network(self, net_attrs=None, network_dict=None, sub_network=None):
         """
+        Saves or updates network in NDEx. If ``net_attrs['name']`` is
+        in **network_dict** then the network is updated, otherwise it is saved
+        as a new network.
 
-        :param net_attrs:
-        :param network_dict:
-        :param sub_network:
-        :return:
+        .. note::
+
+            If ``args.dryrun`` is set to ``True`` in constructor then
+            no update to NDEx is performed. Instead ``INFO`` level log messages are
+            output denoting this is a dry run.
+
+        :param net_attrs: Network's attributes
+        :type net_attrs: dict
+        :param network_dict: contains mapping of network names to NDEx UUID of networks
+                             stored on NDEx
+        :type network_dict: dict
+        :param sub_network: Network to save or update
+        :type sub_network: :py:class:`~ndex2.cx2.CX2Network`
         """
         if net_attrs['name'] in network_dict:
             # this is an update
@@ -525,12 +565,15 @@ class NDExNeSTLoader(object):
 
     def _get_network_url(self, network_id):
         """
-        Gets URL for source NeST subsystem network
+        Gets URL for source NeST subsystem network based on value of
+        server in configuration. If server is set to ``public.ndexbio.org``
+        the value is switched to ``www.ndexbio.org``
 
-        :return:
+        :return: URL of network that can be pasted into browser
+        :rtype: str
         """
         server_url = self._server
-        if server_url == 'public.ndexbio.org':
+        if server_url is None or server_url == 'public.ndexbio.org':
             server_url = 'www.ndexbio.org'
         return 'https://' + server_url + '/viewer/networks/' + network_id
 
@@ -549,8 +592,7 @@ def main(args):
 
     Loads NDEx NeST SubNetworks Content Loader data into NDEx (http://ndexbio.org).
     
-    NeST subnetworks with orphan nodes are currently excluded as are any networks
-    that exceed --maxsize of 100 nodes. 
+    NeST subnetworks with more then --maxsize of 100 nodes are excluded. 
     
     To connect to NDEx server a configuration file must be passed
     into --conf parameter. If --conf is unset the configuration 
