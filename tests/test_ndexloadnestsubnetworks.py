@@ -12,7 +12,7 @@ from ndexutil.config import NDExUtilConfig
 from ndexnestloader import ndexloadnestsubnetworks
 
 
-class TestNdexnestloader(unittest.TestCase):
+class TestNDExNestLoaderCommandLine(unittest.TestCase):
     """Tests for `ndexnestloader` package."""
 
     def setUp(self):
@@ -38,7 +38,6 @@ class TestNdexnestloader(unittest.TestCase):
         self.assertEqual(res.verbose, 3)
         self.assertEqual(res.logconf, 'hi')
         self.assertEqual(res.conf, 'foo')
-
 
     def test_setup_logging(self):
         """ Tests logging setup"""

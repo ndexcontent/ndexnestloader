@@ -35,15 +35,26 @@ DERIVED_FROM_ATTRIB = 'prov:wasDerivedFrom'
 Network attribute to denote source of network data
 """
 
-NDEX_TEST_SERVER = 'test.ndexbio.org'
+PROTEIN_ONE = 'Protein 1'
 """
-NDEx test server where NeST hierarchy resides
+Denotes column/attribute for what we assume is source protein in 
+IAS_score.tsv file
 """
 
-ORPHAN_NODES = 'ORPHAN NODES:'
+PROTEIN_TWO = 'Protein 2'
 """
-Prefix put on networks with orphan names if
---saveonlyorphans flag is set
+Denotes column/attribute for what we assume is target protein in 
+IAS_score.tsv file
+"""
+
+FLOAT_ATTRIBUTES = ['Integrated score',
+                    'evidence: Protein co-expression',
+                    'evidence: Co-dependence',
+                    'evidence: Sequence similarity',
+                    'evidence: Physical',
+                    'evidence: mRNA co-expression']
+"""
+Attributes on NeST Map - Main Model that are known to be floats
 """
 
 
@@ -171,7 +182,7 @@ class NDExNeSTLoader(object):
         :return: user agent string in form of ncipid/<version of this tool>
         :rtype: string
         """
-        return 'nest/' + self._version
+        return 'nest/' + str(self._version)
 
     def _create_ndex_connection(self):
         """
@@ -221,17 +232,24 @@ class NDExNeSTLoader(object):
     def _get_ias_score_map(self):
 
         score_map = {}
+
+        float_attrs = set(FLOAT_ATTRIBUTES)
         if self._tempdir is None:
             tempdir = tempfile.mkdtemp()
             logger.debug('Creating temp directory: ' + tempdir)
+        else:
+            tempdir = self._tempdir
         try:
             ias_score_file = self._download_ias_score(tempdir)
             with open(ias_score_file, 'r', newline='') as f:
                 reader = csv.DictReader(f, delimiter='\t')
                 for row in reader:
-                    if row['Protein 1'] not in score_map:
-                        score_map[row['Protein 1']] = {}
-                    score_map[row['Protein 1']][row['Protein 2']] = row
+                    if row[PROTEIN_ONE] not in score_map:
+                        score_map[row[PROTEIN_ONE]] = {}
+                    for key in row:
+                        if key in float_attrs:
+                            row[key] = float(row[key])
+                    score_map[row[PROTEIN_ONE]][row[PROTEIN_TWO]] = row
             return score_map
         finally:
             if self._tempdir is None:
@@ -334,25 +352,6 @@ class NDExNeSTLoader(object):
             cx2network = self._cx2factory.get_cx2network(json.load(f))
 
         return cx2network.get_visual_properties()
-
-    def get_number_of_orphan_nodes(self, network):
-        """
-        Examines network for any orphan nodes
-
-        :param network:
-        :type network: :py:class:`~ndex2.cx2.CX2Network`
-        :return: Number of orphan nodes
-        :rtype: int
-        """
-        node_ids = set()
-        for key in network.get_nodes().keys():
-            node_ids.add(key)
-
-        nodes_with_edges = set()
-        for key, val in network.get_edges().items():
-            nodes_with_edges.add(val['s'])
-            nodes_with_edges.add(val['t'])
-        return len(node_ids-nodes_with_edges)
 
     def run(self):
         """
@@ -464,7 +463,7 @@ class NDExNeSTLoader(object):
         """
         res = {}
         for key in ias_attributes:
-            if key == 'Protein 1' or key == 'Protein 2':
+            if key == PROTEIN_ONE or key == PROTEIN_TWO:
                 continue
             res[key] = ias_attributes[key]
         return res
