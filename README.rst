@@ -14,10 +14,27 @@ NDEx NeST SubNetworks Content Loader
         :alt: Documentation Status
 
 
-Extracts Nested Systems in Tumors NeST_ subnetworks from `NeST Hiview Hierarchy`_ and
-loads them as new networks in NDEx_ As part of the extraction the networks are named
-the same as the system names designated on the `NeST Hiview Hierarchy`_. A reference, version,
-and description is also set.
+Extracts Nested Systems in Tumors NeST_ subnetworks from `NeST Map - Main Model`_ and
+loads them as new networks in NDEx_
+
+Loads NDEx NeST SubNetworks Content Loader data into NDEx (http://ndexbio.org).
+This is done by doing the following:
+
+1) Load the NeST Map - Main Model as specified by ``--nest``
+   https://www.ndexbio.org/viewer/networks/9a8f5326-aa6e-11ea-aaef-0ac135e8bacf
+
+2) Load IAS_score.tsv file from url or path specified by ``--ias_score``
+
+3) Find all **named**, assemblies (nodes) that have `Annotation` with a name
+   that does not start with ``NEST:`` and have --maxsize genes or less in `Gene`
+   attribute
+
+4) For each **named** assembly create subnetwork by extracting edges from
+   IAS_score.tsv file that pertain to proteins in `Genes` attribute
+   and use the name in `Annotation` attribute for network name
+
+5) Apply a default style to network, as well as set description,
+   `version, reference, Prov:generatedBy, Prov:derivedFrom` fields
 
 
 * Free software: MIT license
@@ -146,4 +163,4 @@ This package was created with Cookiecutter_ and the `audreyr/cookiecutter-pypack
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
 .. _NDEx: http://www.ndexbio.org
 .. _NeST: https://idekerlab.ucsd.edu/nest
-.. _`NeST Hiview Hierarchy`: http://hiview.ucsd.edu/274fcd6c-1adc-11ea-a741-0660b7976219?type=test&server=https://test.ndexbio.edu
+.. _`NeST Map - Main Model`: https://www.ndexbio.org/viewer/networks/9a8f5326-aa6e-11ea-aaef-0ac135e8bacf

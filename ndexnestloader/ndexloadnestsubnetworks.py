@@ -47,6 +47,11 @@ Denotes column/attribute for what we assume is target protein in
 IAS_score.tsv file
 """
 
+IAS_SCORE_URL = 'https://zenodo.org/records/' \
+                '4516939/files/IAS_score.tsv?download=1'
+
+NEST_NDEX_UUID = '9a8f5326-aa6e-11ea-aaef-0ac135e8bacf'
+
 FLOAT_ATTRIBUTES = ['Integrated score',
                     'evidence: Protein co-expression',
                     'evidence: Co-dependence',
@@ -80,13 +85,12 @@ def _parse_arguments(desc, args):
                                           'ndexnestloader)',
                         default='ndexnestloader')
     parser.add_argument('--nest',
-                        default='9a8f5326-aa6e-11ea-aaef-0ac135e8bacf',
+                        default=NEST_NDEX_UUID,
                         help='NDEx UUID of NeST Map - Main Model used to '
                              'define members of subnetworks as well as the '
                              'names of those subnetworks')
     parser.add_argument('--ias_score',
-                        default='https://zenodo.org/records/4516939/files/'
-                                'IAS_score.tsv?download=1',
+                        default=IAS_SCORE_URL,
                         help='Path to IAS_score.tsv file or URL to download '
                              'file')
     parser.add_argument('--maxsize', default=100, type=int,
@@ -591,9 +595,24 @@ def main(args):
     Version {version}
 
     Loads NDEx NeST SubNetworks Content Loader data into NDEx (http://ndexbio.org).
+    This is done by doing the following:
+     
+    1) Load the NeST Map - Main Model as specified by --nest
+       https://www.ndexbio.org/viewer/networks/9a8f5326-aa6e-11ea-aaef-0ac135e8bacf
     
-    NeST subnetworks with more then --maxsize of 100 nodes are excluded. 
+    2) Load IAS_score.tsv file from url or path specified by --ias_score
     
+    3) Find all "named", assemblies (nodes) that have "Annotation" with a name 
+       that does not start with "NEST:" and have --maxsize genes or less in "Gene"
+       attribute
+       
+    4) For each "named" assembly create subnetwork by extracting edges from
+       IAS_score.tsv file that pertain to proteins in "Genes" attribute
+       and use the name in "Annotation" attribute for network name
+       
+    5) Apply a default style to network, as well as set description,
+       version, reference, Prov:generatedBy, Prov:derivedFrom fields
+        
     To connect to NDEx server a configuration file must be passed
     into --conf parameter. If --conf is unset the configuration 
     the path ~/{confname} is examined. 
