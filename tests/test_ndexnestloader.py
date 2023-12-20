@@ -295,3 +295,22 @@ class TestNDExNestLoader(unittest.TestCase):
         c_args = loader._ndexclient.update_cx2_network.call_args.args
         self.assertEqual('12345', c_args[1])
         self.assertTrue(isinstance(c_args[0], io.BytesIO))
+
+    def test_create_network_from_gene_list(self):
+        mockargs = self.get_mockargs()
+        loader = NDExNeSTLoader(mockargs)
+        score_map = {'A': {'B': {'attr1': 'val'}}}
+        net = loader._create_network_from_gene_list(['X', 'A', 'B'],
+                                                    score_map=score_map)
+        self.assertEqual(2, len(net.get_nodes()))
+        self.assertEqual(1, len(net.get_edges()))
+        self.assertEqual({'id': 0, 'v': {'name': 'A'},
+                          'x': None, 'y': None, 'z': None},
+                         net.get_node(0))
+        self.assertEqual({'id': 1, 'v': {'name': 'B'},
+                          'x': None, 'y': None, 'z': None},
+                         net.get_node(1))
+
+        self.assertEqual({'id': 0, 's': 0,
+                          't': 1, 'v': {'attr1': 'val'}},
+                         net.get_edge(0))
