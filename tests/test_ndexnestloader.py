@@ -14,6 +14,8 @@ import unittest
 from ndexnestloader.ndexloadnestsubnetworks import NDExNeSTLoader
 from ndexnestloader import ndexloadnestsubnetworks
 from ndex2.client import Ndex2, DecimalEncoder
+from ndex2.cx2 import CX2Network
+
 
 class TestNDExNestLoader(unittest.TestCase):
     """Tests for `ndexnestloader` package."""
@@ -314,3 +316,26 @@ class TestNDExNestLoader(unittest.TestCase):
         self.assertEqual({'id': 0, 's': 0,
                           't': 1, 'v': {'attr1': 'val'}},
                          net.get_edge(0))
+
+    def test_apply_simple_spring_layout(self):
+        net = CX2Network()
+
+        # Create two nodes and one edge
+        node_one_id = net.add_node(attributes={'name': 'node 1'})
+        node_two_id = net.add_node(attributes={'name': 'node 2'})
+        node_three_id = net.add_node(attributes={'name': 'node 3'})
+        node_four_id = net.add_node(attributes={'name': 'node 4'})
+
+        net.add_edge(source=node_one_id, target=node_two_id, attributes={'interaction': 'link'})
+        net.add_edge(source=node_two_id, target=node_three_id, attributes={'interaction': 'link'})
+        net.add_edge(source=node_one_id, target=node_three_id, attributes={'interaction': 'link'})
+        net.add_edge(source=node_one_id, target=node_four_id, attributes={'interaction': 'link'})
+
+        mockargs = self.get_mockargs()
+        loader = NDExNeSTLoader(mockargs)
+        loader._apply_simple_spring_layout(net)
+        for node_id, node_obj in net.get_nodes().items():
+            self.assertIsNotNone(node_obj['x'])
+            self.assertIsNotNone(node_obj['y'])
+
+

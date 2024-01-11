@@ -18,10 +18,11 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['ndex2>=3.6.0',
+requirements = ['ndex2>=3.7.0,<4.0.0',
                 'ndexutil',
                 'requests',
-                'tqdm']
+                'tqdm',
+                'networkx']
 
 setup_requirements = [ ]
 

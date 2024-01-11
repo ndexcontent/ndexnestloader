@@ -12,10 +12,12 @@ import shutil
 import requests
 from logging import config
 from tqdm import tqdm
+import networkx as nx
 from ndexutil.config import NDExUtilConfig
 from ndex2.client import Ndex2, DecimalEncoder
 from ndex2.cx2 import RawCX2NetworkFactory
 from ndex2.cx2 import CX2Network
+from ndex2.cx2 import CX2NetworkXFactory
 import ndexnestloader
 
 logger = logging.getLogger(__name__)
@@ -365,6 +367,44 @@ class NDExNeSTLoader(object):
 
         return cx2network.get_visual_properties()
 
+    def _apply_simple_spring_layout(self, network, iterations=50):
+        """
+        Applies simple spring network by using
+        :py:func:`networkx.drawing.spring_layout` the coordinates
+        are then set as the positional coordinates for each node
+
+        :param network: Network to update
+        :type network: :py:class:`~ndex2.cx2.CX2Network`
+        :param iterations: Number of iterations to use for networkx spring layout call
+                           default is 50
+        :type iterations: int
+        :return: None
+        """
+
+        num_nodes = len(network.get_nodes())
+        factory = CX2NetworkXFactory()
+        my_networkx = factory.get_graph(network)
+        if num_nodes < 10:
+            nodescale = num_nodes*20
+        elif num_nodes < 20:
+            nodescale = num_nodes*15
+        elif num_nodes < 100:
+            nodescale = num_nodes*10
+        else:
+            nodescale = num_nodes*5
+
+        my_networkx.pos = nx.drawing.spring_layout(my_networkx,
+                                                   scale=nodescale,
+                                                   k=1.8,
+                                                   iterations=iterations)
+
+        for node_id, node_obj in network.get_nodes().items():
+            if node_id not in my_networkx.pos:
+                logger.warning('No node position found from networkx layout for node: ' + str(node_obj))
+                continue
+            node_obj['x'] = my_networkx.pos[node_id][0]
+            node_obj['y'] = my_networkx.pos[node_id][1]
+
     def run(self):
         """
         Runs content loading for NDEx NeST SubNetworks Content Loader
@@ -413,6 +453,8 @@ class NDExNeSTLoader(object):
             sub_network.set_network_attributes(net_attrs)
 
             sub_network.set_visual_properties(visual_props)
+
+            self._apply_simple_spring_layout(network=sub_network)
 
             self._save_update_network(net_attrs=net_attrs, network_dict=network_dict, sub_network=sub_network)
         return 0
